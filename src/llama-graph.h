@@ -4,6 +4,7 @@
 #include "llama-batch.h"
 #include "llama-hparams.h"
 #include "llama-adapter.h"
+#include "llama-sidecar.h"
 
 #include <cstdint>
 #include <vector>
@@ -542,6 +543,7 @@ struct llm_graph_params {
 
     const llama_adapter_cvec     * cvec;
     const llama_adapter_loras    * loras;
+    const std::vector<llama_sidecar_handler_ptr> * sidecars;
     const llama_memory_context_i * mctx;
     const llama_cross            * cross;
 
@@ -628,9 +630,10 @@ struct llm_graph_params {
             cparams.causal_attn == other.cparams.causal_attn &&
             arch  == other.arch  &&
             gtype == other.gtype &&
-            cvec  == other.cvec  &&
-            loras == other.loras &&
-            cross == other.cross;
+            cvec    == other.cvec    &&
+            loras   == other.loras   &&
+            sidecars == other.sidecars &&
+            cross   == other.cross;
     }
 };
 
@@ -756,6 +759,7 @@ struct llm_graph_context {
 
     const llama_adapter_cvec     * cvec;
     const llama_adapter_loras    * loras;
+    const std::vector<llama_sidecar_handler_ptr> * sidecars;
     const llama_memory_context_i * mctx;
     const llama_cross            * cross;
 
@@ -779,6 +783,15 @@ struct llm_graph_context {
 
     ggml_tensor * build_cvec(
              ggml_tensor * cur,
+                     int   il) const;
+
+    ggml_tensor * build_sidecar(
+             ggml_tensor * cur,
+                     int   il) const;
+
+    ggml_tensor * build_sidecar_expert(
+             ggml_tensor * experts,
+             ggml_tensor * selected_experts,
                      int   il) const;
 
     // do mat_mul, while optionally apply lora and per-tensor scale
