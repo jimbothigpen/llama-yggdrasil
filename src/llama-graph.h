@@ -676,6 +676,10 @@ public:
     ggml_tensor * t_embd        = nullptr;
     ggml_tensor * t_embd_pooled = nullptr;
 
+    // pre-norm hidden state for MTP draft loop (only set when an MTP head graph runs)
+    ggml_tensor * t_h_pre_norm  = nullptr;
+    ggml_tensor * t_mtp_out     = nullptr; // MTP MoE post-FFN tensor — set by qwen35moe_mtp graph for draft-loop seeding
+
     std::map<llama_seq_id, ggml_tensor*> t_sampled_logits;
     std::map<llama_seq_id, ggml_tensor*> t_candidates;
     std::map<llama_seq_id, ggml_tensor*> t_sampled;
