@@ -15,16 +15,30 @@ void llama_model_qwen35moe::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_SSM_TIME_STEP_RANK, hparams.ssm_dt_rank);
     ml.get_key(LLM_KV_SSM_GROUP_COUNT,    hparams.ssm_n_group);
 
-    // Mark recurrent layers (linear attention layers)
+    // MTP-via-base-arch: GGUFs converted by the upstream/frankenturbo2 converter
+    // tag base arch (`qwen35moe`) but append `nextn_predict_layers` trailing
+    // blocks that are full-attention transformer blocks (no SSM) plus per-block
+    // `nextn.*` tensors. Cleanly-yggdrasil-converted GGUFs use the sibling
+    // `qwen35moe_mtp` arch instead and arrive here with `nextn_predict_layers == 0`.
+    ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, hparams.nextn_predict_layers, false);
+
+    // Mark recurrent layers (linear attention layers).
+    // Trailing nextn_predict_layers blocks are always full-attention (MTP tail).
     {
         uint32_t full_attn_interval = 4;
         ml.get_key(LLM_KV_FULL_ATTENTION_INTERVAL, full_attn_interval, false);
+        const uint32_t n_transformer_layers = hparams.n_layer - hparams.nextn_predict_layers;
         for (uint32_t i = 0; i < hparams.n_layer; ++i) {
-            hparams.recurrent_layer_arr[i] = ((i + 1) % full_attn_interval != 0);
+            if (i >= n_transformer_layers) {
+                hparams.recurrent_layer_arr[i] = false;
+            } else {
+                hparams.recurrent_layer_arr[i] = ((i + 1) % full_attn_interval != 0);
+            }
         }
     }
 
-    switch (hparams.n_layer) {
+    const uint32_t n_hidden = hparams.n_layer - hparams.nextn_predict_layers;
+    switch (n_hidden) {
         case 40: type = LLM_TYPE_35B_A3B; break;
         case 48: type = LLM_TYPE_122B_A10B; break;
         case 60: type = LLM_TYPE_397B_A17B; break;
@@ -96,6 +110,18 @@ void llama_model_qwen35moe::load_arch_tensors(llama_model_loader &) {
         layer.ffn_gate_shexp     = create_tensor(tn(LLM_TENSOR_FFN_GATE_SHEXP,     "weight", i), { n_embd, n_ff_shexp }, 0);
         layer.ffn_up_shexp       = create_tensor(tn(LLM_TENSOR_FFN_UP_SHEXP,       "weight", i), { n_embd, n_ff_shexp }, 0);
         layer.ffn_down_shexp     = create_tensor(tn(LLM_TENSOR_FFN_DOWN_SHEXP,     "weight", i), { n_ff_shexp, n_embd }, 0);
+
+        // MTP-via-base-arch: see qwen35.cpp for rationale. Load NEXTN_* tensors for
+        // the trailing nextn_predict_layers blocks; base-arch graph ignores them.
+        const uint32_t n_transformer_layers = hparams.n_layer - hparams.nextn_predict_layers;
+        if (static_cast<uint32_t>(i) >= n_transformer_layers) {
+            layer.nextn.eh_proj          = create_tensor(tn(LLM_TENSOR_NEXTN_EH_PROJ,          "weight", i), { 2 * n_embd, n_embd }, TENSOR_NOT_REQUIRED);
+            layer.nextn.enorm            = create_tensor(tn(LLM_TENSOR_NEXTN_ENORM,            "weight", i), { n_embd },              TENSOR_NOT_REQUIRED);
+            layer.nextn.hnorm            = create_tensor(tn(LLM_TENSOR_NEXTN_HNORM,            "weight", i), { n_embd },              TENSOR_NOT_REQUIRED);
+            layer.nextn.embed_tokens     = create_tensor(tn(LLM_TENSOR_NEXTN_EMBED_TOKENS,     "weight", i), { n_embd, n_vocab },     TENSOR_NOT_REQUIRED);
+            layer.nextn.shared_head_head = create_tensor(tn(LLM_TENSOR_NEXTN_SHARED_HEAD_HEAD, "weight", i), { n_embd, n_vocab },     TENSOR_NOT_REQUIRED);
+            layer.nextn.shared_head_norm = create_tensor(tn(LLM_TENSOR_NEXTN_SHARED_HEAD_NORM, "weight", i), { n_embd },              TENSOR_NOT_REQUIRED);
+        }
     }
 }
 
