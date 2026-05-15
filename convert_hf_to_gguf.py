@@ -14263,6 +14263,16 @@ class ZayaModel(TextModel):
         n_expert_used = self.find_hparam(["moe_router_topk", "num_experts_per_tok"], optional=True) or 1
         self.gguf_writer.add_expert_used_count(n_expert_used)
 
+        # ZAYA uses RMSNorm internally. ZAYA1-8B's HF config names the eps
+        # `layer_norm_eps`, which the TextModel parent class would route to
+        # `add_layer_norm_eps` (writing `*.attention.layer_norm_epsilon`).
+        # Explicitly write the RMS-named key so the loader gets the
+        # architecturally-correct schema. The C++ loader accepts either name
+        # for backward-compat with existing GGUFs.
+        rms_eps = self.find_hparam(["rms_norm_eps", "layer_norm_eps", "layer_norm_epsilon", "norm_epsilon"], optional=True)
+        if rms_eps is not None:
+            self.gguf_writer.add_layer_norm_rms_eps(rms_eps)
+
     def _map_cca(self, name: str, data_torch: Tensor, bid: int) -> Iterable[tuple[str, Tensor]]:
         if "linear_q" in name:
             yield self.format_tensor_name(gguf.MODEL_TENSOR.ATTN_Q, bid), data_torch
